@@ -54,7 +54,7 @@ def webcam_rgb_depth(target):
     global model
     global color_frame
     if target == "":
-        print("Please enter a target to hunt!")
+        yield gr.update(value=None) , gr.update(value=None), gr.update(value="Please enter a target to hunt!")
     
     if target != "":
         go = 1
@@ -69,12 +69,12 @@ def webcam_rgb_depth(target):
             gray_frame = cv2.cvtColor(color_frame, cv2.COLOR_RGB2GRAY)
 
             if not ret:
-                print("Can't detect camera")
+                yield gr.update(value=None) , gr.update(value=None), gr.update(value="Can't detect camera!")
 
             results = model.predict(color_frame)
             annotated_img = results[0].plot()
 
-            yield gr.update(value=annotated_img) , gr.update(value=gray_frame)
+            yield gr.update(value=annotated_img) , gr.update(value=gray_frame), gr.update(value="I am hunting for " + target)
 
 def halt():
     global go
@@ -85,5 +85,5 @@ def halt():
             gray_frame = cv2.cvtColor(color_frame, cv2.COLOR_RGB2GRAY)
             yield gr.update(value=color_frame) , gr.update(value=gray_frame)
         if color_frame is None:
-            print("Can't freeze, have you tried turning it off and on again?")
+            yield gr.update(value=None) , gr.update(value=None), gr.update(value="Can't freeze, have you tried turning it off and on again?")
             break

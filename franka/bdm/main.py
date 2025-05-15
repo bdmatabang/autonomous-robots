@@ -12,7 +12,7 @@ def gradio_ui():
             target = gr.Textbox(
                         label="What to Grasp?"
                     )
-
+        
         with gr.Row():
             button_fetch = gr.Button("Start Grasping!")
             button_halt = gr.Button("Freeze!")
@@ -27,9 +27,14 @@ def gradio_ui():
                                     label="Panda measures...",
                                     type="numpy",
                                     streaming=True)
-            
-            button_fetch.click(webcam_rgb_depth, inputs=[target], outputs=[rgb_image,depth_image])
-            button_halt.click(halt, inputs=[], outputs=[rgb_image,depth_image])
+
+        with gr.Row():
+            output_console = gr.Textbox(label="Panda says...", lines=1)
+
+        button_fetch.click(webcam_rgb_depth, inputs=[target], outputs=[rgb_image,depth_image,output_console])
+        button_halt.click(halt, inputs=[], outputs=[rgb_image,depth_image,output_console])
+
+
 
     return demo
 

@@ -11,48 +11,42 @@ from PIL import Image, ImageDraw
 # Initializations
 model = YOLOWorld("yolov8m-world.pt")
 model.to('cuda')
+#pipeline = rs.pipeline()
+#config = rs.config()
 go = 0
 color_frame = None
 """
-def realsense_rgb_depth(model, pipeline, config, target):
+def realsense_rgb_depth(target):
     global go
-    go == 1
-
-    # Enable both color and depth streams
-    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-
-    # Start the stream
-    pipeline.start(config)
-
-
-    while go == 1:
-        frames = pipeline.wait_for_frames()
-        color_frame = frames.get_color_frame()
-        depth_frame = frames.get_depth_frame()
-
-        if not color_frame or not depth_frame:
-            continue
-
+    global model
+    global color_frame
+    if target == "":
+        print("Please enter a target to hunt!")
+    
+    if target != "":
+        go = 1
         model.set_classes([target])
+        print("Target set to: ", target)
+        while go == 1:
+            # Enable both color and depth streams
+            config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+            config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+            # Start the stream
+            pipeline.start(config)
+            frames = pipeline.wait_for_frames()
+            color_frame = frames.get_color_frame()
+            color_frame = np.asanyarray(color_frame.get_data())
+            color_frame = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
 
-        # Convert to NumPy arrays
-        color_image = np.asanyarray(color_frame.get_data())
-        depth_image = np.asanyarray(depth_frame.get_data())  # uint16, depth in mm
-        depth_image = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
-        results = model.predict(color_image)
-        img_with_overlay = results[0].cpu().numpy()
-        boxes = results[0].boxes.xyxy.cpu().numpy()
-        rgbdraw = ImageDraw.Draw(color_image)
-        depthdraw = ImageDraw.Draw(depth_image)
+            depth_frame = frames.get_depth_frame()
+            depth_image = np.asanyarray(depth_frame.get_data())
+            depth_colormap = cv2.convertScaleAbs(depth_image, alpha=0.03)
+            depth_colormap = cv2.applyColorMap(depth_colormap, cv2.COLORMAP_JET)
 
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box)  # Convert coordinates to integers (if they are not already)
-            # Draw a rectangle (bounding box) on the image
-            rgbdraw.rectangle([x1, y1, x2, y2], outline="red", width=3)
-            depthdraw.rectangle([x1, y1, x2, y2], outline="white", width=3)
+            results = model.predict(color_frame)
+            annotated_img = results[0].plot()
 
-        yield gr.update(value=color_image) , gr.update(value=depth_image)
+        yield gr.update(value=annotated_img) , gr.update(value=depth_colormap)
         """
 
 def webcam_rgb_depth(target):

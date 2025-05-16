@@ -41,4 +41,4 @@ def gradio_ui():
 
 if __name__ == "__main__":
     demo = gradio_ui()
-    demo.launch()
+    demo.launch(share=True)

@@ -7,13 +7,16 @@ import gradio as gr
 import subprocess
 from ultralytics import YOLOWorld
 from PIL import Image, ImageDraw
-# import pyrealsense2 as rs
+import pyrealsense2 as rs
 
 # Initializations
 model = YOLOWorld("yolov8m-world.pt")
 model.to('cuda')
-#pipeline = rs.pipeline()
-#config = rs.config()
+pipeline = rs.pipeline()
+config = rs.config()
+pipeline_wrapper = rs.pipeline_wrapper(pipeline)
+pipeline_profile = config.resolve(pipeline_wrapper)
+pipeline_status = False
 go = 0
 color_frame = None
 cam_offset = 0
@@ -30,12 +33,20 @@ def move_robot(objectctrxy, objectctrz):
     #subprocess
 
 
-"""
+
 def realsense_rgb_depth(target):
     global go
     global model
     global color_frame
+    global pipeline, config, pipeline_status
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+    if not pipeline_status:
+        pipeline.start(config)
+        pipeline_status = True
     if target == "":
+        pipeline.stop()
+        pipeline_status = False
         yield gr.update(value=None) , gr.update(value=None), gr.update(value="Please enter a target to hunt!")
     
     if target != "":
@@ -43,45 +54,56 @@ def realsense_rgb_depth(target):
         model.set_classes([target])
         while go == 1:
             try:
-                # Enable both color and depth streams
-                config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-                config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-                # Start the stream
-                pipeline.start(config)
+        
                 frames = pipeline.wait_for_frames()
                 color_frame = frames.get_color_frame()
-                color_frame = np.asanyarray(color_frame.get_data())
-                color_frame = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
-
                 depth_frame = frames.get_depth_frame()
+                if not depth_frame or not color_frame:
+                    print("CAN'T SEE BRO")
+                
+                color_image = np.asanyarray(color_frame.get_data())
+                color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
                 depth_image = np.asanyarray(depth_frame.get_data())
-                depth_colormap = cv2.convertScaleAbs(depth_image, alpha=0.03)
-                depth_colormap = cv2.applyColorMap(depth_colormap, cv2.COLORMAP_JET)
-            except:
+                depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
+
+
+            except Exception as e:
+                print(e)
                 yield gr.update(value=None) , gr.update(value=None), gr.update(value="I can't see! Check the camera connection!")
                 break
 
-            results = model.predict(color_frame)
-            annotated_img = results[0].boxes[0].plot()
+            results = model.predict(color_image)
+            if results[0].boxes and len(results[0].boxes) > 0:
+                annotated_img = color_image.copy()
 
-            # Extract the bounding box coordinates from the results
-            box = results[0].boxes[0].xyxy.cpu().numpy()  # Get bounding boxes in xyxy format
-            x_min, y_min, x_max, y_max = box
-            center_x = int((x_min + x_max) / 2)
-            center_y = int((y_min + y_max) / 2)
-            object_ctr_xy = (center_x, center_y)
+                # Extract the first bounding box
+                box = results[0].boxes[0].xyxy.cpu().numpy().astype(int)[0]  # [x_min, y_min, x_max, y_max]
+                x_min, y_min, x_max, y_max = box
+                cls_id = int(results[0].boxes[0].cls.cpu().numpy()[0])
+                conf = float(results[0].boxes[0].conf.cpu().numpy()[0])
+                cv2.rectangle(annotated_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+                label = f"{target} {conf:.2f}"
+                cv2.putText(annotated_img, label, (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-            # Get the depth value at the object's center
-            object_ctr_z = depth_frame.get_distance(center_x, center_y)
+                center_x = int((x_min + x_max) / 2)
+                center_y = int((y_min + y_max) / 2)
+                object_ctr_xy = (center_x, center_y)
 
-        yield gr.update(value=annotated_img) , gr.update(value=gray_frame), gr.update(value="I am hunting for " + target)
-        ds
-        """
+                # Get the depth value at the object's center
+                object_ctr_z = depth_frame.get_distance(center_x, center_y)
+
+                yield gr.update(value=annotated_img) , gr.update(value=depth_colormap), gr.update(value="I am hunting for " + target)
+            else:
+                # If nothing was detected, just keep going
+                yield gr.update(value=color_image), gr.update(value=depth_colormap), gr.update(value="No target detected!")
+
+
 
 def webcam_rgb_depth(target):
     global go
     global model
     global color_frame
+    global pipeline, config, pipeline_status
     if target == "":
         yield gr.update(value=None) , gr.update(value=None), gr.update(value="Please enter a target to hunt!")
     
@@ -100,14 +122,18 @@ def webcam_rgb_depth(target):
                 yield gr.update(value=None) , gr.update(value=None), gr.update(value="Can't detect camera!")
 
             results = model.predict(color_frame)
-            annotated_img = results[0].boxes[0].plot()
+            annotated_img = results[0].plot()
 
             yield gr.update(value=annotated_img) , gr.update(value=gray_frame), gr.update(value="I am hunting for " + target)
 
 def halt():
     global go
     global color_frame
+    global pipeline_status
     go = 0
+    if pipeline_status:
+        pipeline.stop()
+        pipeline_status = False
     while go == 0:
         if color_frame:
             gray_frame = cv2.cvtColor(color_frame, cv2.COLOR_RGB2GRAY)

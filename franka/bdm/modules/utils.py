@@ -20,12 +20,13 @@ pipeline_status = False
 go = 0
 color_frame, color_image, depth_colormap = None, None, None
 object_x, object_y, object_z = None, None, None
-cam_offset_z = -0.02 # gripper is currently 2cm below cam 
-cam_offset_x = -0.05 # gripper is currently 5cm behind cam 
+cam_offset_z = -0.02 # gripper is currently 2cm below cam
+cam_offset_x = -0.05 # gripper is currently 5cm behind cam
+originx, originy, originz = 0.3, 0, 0.45
 x, y, z = cam_offset_x, 0, cam_offset_z
 
 def move_robot(object_center_x,object_center_y,object_z):
-    global x, y, z
+    global x, y, z, originx, originy, originz
     # in camera coordinate system, positive x is rightward, positive y is downward
     # in panda coordinate system, positive x if forward, positive y is leftward, positive z is upward
     # movement in x will be pandax = -camy
@@ -34,16 +35,13 @@ def move_robot(object_center_x,object_center_y,object_z):
     movey = -object_center_x
     # python rest.py <x> <y> <z> <time> <delta_theta_z_deg> <delta_theta_y_deg> <delta_theta_x_deg>
     remotecommand = f'ssh researcher@192.168.1.129'
-    changedirms = f'~/autonomous-robots/franka/cpp'
-    motionserver = f'./motion_server'
-    changedirpy = f'cd ../python'
-    remotecommand = f'python3 rest.py {movex} {movey} 0 5'
-    subprocess.run(remotecommand)
-    subprocess.run(changedirms)
-    subprocess.run(motionserver)
-    subprocess.run(changedirpy)
-    subprocess.run(remotecommand)
-    time.sleep(2)
+    changedirpy = f'cd ~/autonomous-robots/franka/python'
+    remotecommand = f'python rest.py --parameters {movex} {movey} 0.45 7'
+    rth = f'python rest.py --parameters {originx} {originy} {originz} 5'
+    subprocess.run([remotecommand, '&&', changedirpy, '&&', remotecommand], shell=True)
+    time.sleep(3)
+    subprocess.run([rth], shell=True)
+    subprocess.run('exit')
 
 
 def realsense_rgb_depth(target):

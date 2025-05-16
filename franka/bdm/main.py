@@ -2,7 +2,7 @@ import subprocess
 import gradio as gr
 import torch
 import numpy as np
-from modules.utils import realsense_rgb_depth, webcam_rgb_depth, halt
+from modules.utils import realsense_rgb_depth, halt
 
 def gradio_ui():
     with gr.Blocks() as demo:

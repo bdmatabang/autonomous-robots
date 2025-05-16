@@ -2,7 +2,7 @@ import subprocess
 import gradio as gr
 import torch
 import numpy as np
-from modules.utils import webcam_rgb_depth, halt
+from modules.utils import realsense_rgb_depth, webcam_rgb_depth, halt
 
 def gradio_ui():
     with gr.Blocks() as demo:
@@ -31,7 +31,7 @@ def gradio_ui():
         with gr.Row():
             output_console = gr.Textbox(label="Panda says...", lines=1)
 
-        button_fetch.click(webcam_rgb_depth, inputs=[target], outputs=[rgb_image,depth_image,output_console])
+        button_fetch.click(realsense_rgb_depth, inputs=[target], outputs=[rgb_image,depth_image,output_console])
         button_halt.click(halt, inputs=[], outputs=[rgb_image,depth_image,output_console])
 
 

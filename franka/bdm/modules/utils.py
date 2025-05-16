@@ -14,35 +14,49 @@ model = YOLOWorld("yolov8m-world.pt")
 model.to('cuda')
 pipeline = rs.pipeline()
 config = rs.config()
-pipeline_wrapper = rs.pipeline_wrapper(pipeline)
-pipeline_profile = config.resolve(pipeline_wrapper)
+cx, cy = 327.1177978515625, 240.3525848388672
+fx, fy = 390.7403259277344, 390.7403259277344
 pipeline_status = False
 go = 0
-color_frame = None
-cam_offset = 0
-x, y, z = 0, cam_offset, 0
+color_frame, color_image, depth_colormap = None, None, None
+object_x, object_y, object_z = None, None, None
+cam_offset_z = -0.02 # gripper is currently 2cm below cam 
+cam_offset_x = -0.05 # gripper is currently 5cm behind cam 
+x, y, z = cam_offset_x, 0, cam_offset_z
 
-def move_robot(objectctrxy, objectctrz):
+def move_robot(object_center_x,object_center_y,object_z):
     global x, y, z
-    # in panda coordinate system, positive x if forward, positive y is leftward, positive z is upward
     # in camera coordinate system, positive x is rightward, positive y is downward
-    # movement in x will be objectctrxy[1] - 
-    #movex = 
+    # in panda coordinate system, positive x if forward, positive y is leftward, positive z is upward
+    # movement in x will be pandax = -camy
+    # movement in y will be panday = -camx 
+    movex = -object_center_y
+    movey = -object_center_x
     # python rest.py <x> <y> <z> <time> <delta_theta_z_deg> <delta_theta_y_deg> <delta_theta_x_deg>
-    #command = 'python rest.py '
-    #subprocess
-
+    remotecommand = f'ssh researcher@192.168.1.129'
+    changedirms = f'~/autonomous-robots/franka/cpp'
+    motionserver = f'./motion_server'
+    changedirpy = f'cd ../python'
+    remotecommand = f'python3 rest.py {movex} {movey} 0 5'
+    subprocess.run(remotecommand)
+    subprocess.run(changedirms)
+    subprocess.run(motionserver)
+    subprocess.run(changedirpy)
+    subprocess.run(remotecommand)
+    time.sleep(2)
 
 
 def realsense_rgb_depth(target):
     global go
     global model
-    global color_frame
+    global color_image
     global pipeline, config, pipeline_status
+    global cx, cy, fx, fy
+    global object_x, object_y, object_z 
     config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
     config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
     if not pipeline_status:
-        pipeline.start(config)
+        profile = pipeline.start(config)
         pipeline_status = True
     if target == "":
         pipeline.stop()
@@ -54,10 +68,13 @@ def realsense_rgb_depth(target):
         model.set_classes([target])
         while go == 1:
             try:
-        
+                align_to = rs.stream.color
+                align = rs.align(align_to)
+
                 frames = pipeline.wait_for_frames()
-                color_frame = frames.get_color_frame()
-                depth_frame = frames.get_depth_frame()
+                aligned_frames = align.process(frames)
+                color_frame = aligned_frames.get_color_frame()
+                depth_frame = aligned_frames.get_depth_frame()
                 if not depth_frame or not color_frame:
                     print("CAN'T SEE BRO")
                 
@@ -79,6 +96,14 @@ def realsense_rgb_depth(target):
                 # Extract the first bounding box
                 box = results[0].boxes[0].xyxy.cpu().numpy().astype(int)[0]  # [x_min, y_min, x_max, y_max]
                 x_min, y_min, x_max, y_max = box
+
+
+                depth_sensor = profile.get_device().first_depth_sensor()
+                depth_scale = depth_sensor.get_depth_scale()
+                depth_roi = np.asanyarray(depth_frame.get_data())[y_min:y_max, x_min:x_max] * depth_scale
+                valid_depths = depth_roi[depth_roi > 0]
+
+
                 cls_id = int(results[0].boxes[0].cls.cpu().numpy()[0])
                 conf = float(results[0].boxes[0].conf.cpu().numpy()[0])
                 cv2.rectangle(annotated_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
@@ -87,18 +112,32 @@ def realsense_rgb_depth(target):
 
                 center_x = int((x_min + x_max) / 2)
                 center_y = int((y_min + y_max) / 2)
-                object_ctr_xy = (center_x, center_y)
+                half = 10 // 2
+                x1 = max(center_x - half, 0)
+                x2 = min(center_x + half + 1, depth_image.shape[1])
+                y1 = max(center_y - half, 0)
+                y2 = min(center_y + half + 1, depth_image.shape[0])
+                region = depth_image[y1:y2, x1:x2]
+                valid_region = region[region > 0]
+                if len(valid_region) > 0:
+                    object_z = valid_region.mean() * depth_scale
+                else:
+                    continue
 
-                # Get the depth value at the object's center
-                object_ctr_z = depth_frame.get_distance(center_x, center_y)
+                object_center_x = (center_x - cx) * object_z / fx
+                object_center_y = (center_y - cy) * object_z / fx
+
+                print(object_center_x,object_center_y,object_z)
 
                 yield gr.update(value=annotated_img) , gr.update(value=depth_colormap), gr.update(value="I am hunting for " + target)
+                move_robot(object_center_x,object_center_y,object_z)
+                time.sleep(5)
             else:
                 # If nothing was detected, just keep going
                 yield gr.update(value=color_image), gr.update(value=depth_colormap), gr.update(value="No target detected!")
 
 
-
+"""
 def webcam_rgb_depth(target):
     global go
     global model
@@ -125,19 +164,29 @@ def webcam_rgb_depth(target):
             annotated_img = results[0].plot()
 
             yield gr.update(value=annotated_img) , gr.update(value=gray_frame), gr.update(value="I am hunting for " + target)
+            """
 
 def halt():
     global go
-    global color_frame
+    global color_image, depth_colormap
     global pipeline_status
+    global object_x, object_y, object_z
     go = 0
     if pipeline_status:
         pipeline.stop()
         pipeline_status = False
     while go == 0:
-        if color_frame:
-            gray_frame = cv2.cvtColor(color_frame, cv2.COLOR_RGB2GRAY)
-            yield gr.update(value=color_frame) , gr.update(value=gray_frame)
-        if color_frame is None:
+        if color_image:
+            yield gr.update(value=color_image) , gr.update(value=depth_colormap), gr.update(value="Stopped Streaming!")
+        if color_image is None:
             yield gr.update(value=None) , gr.update(value=None), gr.update(value="Can't freeze, have you tried turning it off and on again?")
             break
+"""
+def grasp():
+    global go
+    global color_image, depth_colormap
+    global pipeline_status
+    global object_x, object_y, object_z
+    go = 0
+    if object_x:
+"""

@@ -5,6 +5,10 @@ import numpy as np
 import cv2
 import gradio as gr
 import subprocess
+import requests
+import sys
+import json
+import argparse
 from ultralytics import YOLOWorld
 from PIL import Image, ImageDraw
 import pyrealsense2 as rs
@@ -20,30 +24,74 @@ pipeline_status = False
 go = 0
 color_frame, color_image, depth_colormap = None, None, None
 object_x, object_y, object_z = None, None, None
-cam_offset_z = -0.02 # gripper is currently 2cm below cam
-cam_offset_x = -0.05 # gripper is currently 5cm behind cam
-originx, originy, originz = 0.3, 0, 0.45
-x, y, z = cam_offset_x, 0, cam_offset_z
+cam_offset_x = 0.03 # cam is 3cm in front of gripper
+cam_offset_z = 0.025 # cam is 2cm above gripper
+originx, originy, originz = 0.3, 0, 0.50
+camoriginx, camoriginy, camoriginz = originx + cam_offset_x, 0, originz + cam_offset_z
+
+def send_floats(command, parameters):
+    """
+    desktop ip: 192.168.1.129
+    port: 34568
+    Change accordingly
+    """
+    ip = "192.168.1.129"
+    port = "34568"
+    url = f"http://{ip}:{port}/api/floats"
+    print(parameters)
+    data = {
+        command: parameters
+    }
+    response = requests.post(url, json=data)
+    return response
 
 def move_robot(object_center_x,object_center_y,object_z):
-    global x, y, z, originx, originy, originz
+    global originx, originy, originz, camoriginx, camoriginy, camoriginz
     # in camera coordinate system, positive x is rightward, positive y is downward
     # in panda coordinate system, positive x if forward, positive y is leftward, positive z is upward
     # movement in x will be pandax = -camy
-    # movement in y will be panday = -camx 
-    movex = -object_center_y
-    movey = -object_center_x
-    # python rest.py <x> <y> <z> <time> <delta_theta_z_deg> <delta_theta_y_deg> <delta_theta_x_deg>
-    remotecommand = f'ssh researcher@192.168.1.129'
-    changedirpy = f'cd ~/autonomous-robots/franka/python'
-    remotecommand = f'python rest.py --parameters {movex} {movey} 0.45 7'
-    rth = f'python rest.py --parameters {originx} {originy} {originz} 5'
-    subprocess.run([remotecommand, '&&', changedirpy, '&&', remotecommand], shell=True)
-    time.sleep(3)
-    subprocess.run([rth], shell=True)
-    subprocess.run('exit')
+    # movement in y will be panday = -camx
+    movex = -object_center_y + camoriginx
+    movey = -object_center_x + originy
+    initialmovez = camoriginz - object_z + 0.2
+    movez = camoriginz - object_z - 0.0039
 
+    #safe move
+    command = "moveToCartesian"
+    parameters = [movex, movey, initialmovez, 5]
+    response = send_floats(command, parameters)
+    print(f"Status Code: {response.status_code}")
+    print(f"Response: {response.json()}")
+    time.sleep(1)
 
+    #sugar,we're going down
+    command = "moveToCartesian"
+    parameters = [movex, movey, movez, 5]
+    response = send_floats(command, parameters)
+    print(f"Status Code: {response.status_code}")
+    print(f"Response: {response.json()}")
+    time.sleep(2)
+
+    #grip
+    gripcommand = 'closeGripper'
+    parameters = [0.02]
+    response = send_floats(gripcommand, parameters)
+    print(f"Status Code: {response.status_code}")
+    print(f"Response: {response.json()}")
+    time.sleep(2)
+
+    #move back home
+    rth_parameters = [originx, originy, originz, 5]
+    response = send_floats(command, rth_parameters)
+    print(f"Status Code: {response.status_code}")
+    print(f"Response: {response.json()}")
+
+    #let go
+    opencommand = 'openGripper'
+    parameters = [0.5]
+    response = send_floats(opencommand, parameters)
+    print(f"Status Code: {response.status_code}")
+    print(f"Response: {response.json()}")
 def realsense_rgb_depth(target):
     global go
     global model
@@ -128,8 +176,9 @@ def realsense_rgb_depth(target):
                 print(object_center_x,object_center_y,object_z)
 
                 yield gr.update(value=annotated_img) , gr.update(value=depth_colormap), gr.update(value="I am hunting for " + target)
-                move_robot(object_center_x,object_center_y,object_z)
                 time.sleep(5)
+                move_robot(object_center_x,object_center_y,object_z)
+                time.sleep(20)
             else:
                 # If nothing was detected, just keep going
                 yield gr.update(value=color_image), gr.update(value=depth_colormap), gr.update(value="No target detected!")
